@@ -1,0 +1,19 @@
+version: "3"
+
+services:
+  dune-discord-bot:
+    image: python:3.11-slim
+    container_name: dune_discord_bot
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./bot.py:/app/bot.py:ro
+      - ./guild_config.json:/app/guild_config.json
+      - ./max_player_count.json:/app/max_player_count.json
+      - ./server_status.json:/app/server_status.json
+    environment:
+      - DISCORD_TOKEN=TOKEN
+    command: >
+      bash -c "pip install --upgrade pip &&
+               pip install --no-cache-dir discord.py requests &&
+               python -u bot.py"
