@@ -12,43 +12,47 @@ CONFIG_FILE = "guild_config.json"
 MAX_COUNT_FILE = "max_player_count.json"
 STATUS_FILE = "server_status.json"
 URL = "https://dunestatus.com"
-COOLDOWN_MINUTES = 5
 
-# Use fixed offset for CEST (UTC+2) without DST changes
+# Fixed timezone for CEST (UTC+2)
 CEST = timezone(timedelta(hours=2))
 
 intents = discord.Intents.default()
-intents.members = True  # Needed for permission checks
-intents.guilds = True   # Needed to fetch guild and channels properly
+intents.members = True
+intents.guilds = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
+# Configuration and status tracking
 guild_configs = {}
 max_counts = {}
 status_info = {}
-                                                                                                                                                                                         last_statuses = {}                                                                                                                                                                       last_status_changes = {}                                                                                                                                                                                                                                                                                                                                                          last_reset_day = None                                                                                                                                                                    ratelimit_calls = {}
 
+# Status tracking variables
+last_statuses = {}  # Tracks last known status for each guild
+initial_status_sent = {}  # Prevents startup "Online" message
+
+# Cache management
 _server_data_cache = None
 _server_data_cache_time = None
 _server_list_cache = []
 _server_list_cache_time = None
 
+# Time tracking
 last_fetch_time = None
+last_reset_day = datetime.now(CEST).date()
 
 # Supported languages and translations
 LANGUAGES = {
     "en": "English",
     "de": "Deutsch",
-    "fr": "Fran      ais",
-    "es": "Espa      ol"
+    "fr": "Français",
+    "es": "Español"
 }
 
-# Translation dictionary for all bot messages and embed fields
+# Translation dictionary for all bot messages
 TRANSLATIONS = {
     "Serverstatus": {
         "en": "Serverstatus",
-        "de": "Serverstatus",
-        "fr": "Statut du serveur",
         "de": "Serverstatus",
         "fr": "Statut du serveur",
         "es": "Estado del servidor"
@@ -77,11 +81,16 @@ TRANSLATIONS = {
         "fr": "Joueurs Sietch",
         "es": "Jugadores Sietch"
     },
-    "Daily Player Peak Sietch": {                                                                                                                                                                "en": "Daily Player Peak Sietch",                                                                                                                                                        "de": "T      glicher Spielerrekord Sietch",                                                                                                                                             "fr": "Pic journalier joueurs Sietch",                                                                                                                                                   "es": "Pico diario jugadores Sietch"                                                                                                                                                 },
+    "Daily Player Peak Sietch": {
+        "en": "Daily Player Peak Sietch",
+        "de": "Täglicher Spielerrekord Sietch",
+        "fr": "Pic journalier joueurs Sietch",
+        "es": "Pico diario jugadores Sietch"
+    },
     "Capacity Sietch": {
         "en": "Capacity Sietch",
-        "de": "Kapazit      t Sietch",
-        "fr": "Capacit       Sietch",
+        "de": "Kapazität Sietch",
+        "fr": "Capacité Sietch",
         "es": "Capacidad Sietch"
     },
     "Playercount Server": {
@@ -92,50 +101,50 @@ TRANSLATIONS = {
     },
     "Daily Player Peak Server": {
         "en": "Daily Player Peak Server",
-        "de": "Taeglicher Spielerrekord Server",
+        "de": "Täglicher Spielerrekord Server",
         "fr": "Pic journalier joueurs Serveur",
         "es": "Pico diario jugadores Servidor"
     },
     "Capacity Server": {
         "en": "Capacity Server",
-        "de": "Kapazitaet Server",
-        "fr": "Capacite Serveur",
+        "de": "Kapazität Server",
+        "fr": "Capacité Serveur",
         "es": "Capacidad Servidor"
     },
     "Last status update:": {
         "en": "Last status update:",
         "de": "Letztes Status-Update:",
-        "fr": "Derni      re mise        jour :",
-        "es": "   ^zltima actualizaci      n:"
+        "fr": "Dernière mise à jour :",
+        "es": "Última actualización:"
     },
     "Please don't request so often (max 5 per minute).": {
         "en": "Please don't request so often (max 5 per minute).",
         "de": "Bitte nicht so oft anfragen (max. 5 pro Minute).",
         "fr": "Merci de ne pas demander aussi souvent (max 5 par minute).",
-        "es": "Por favor, no solicites tan seguido (m      x. 5 por minuto)."
+        "es": "Por favor, no solicites tan seguido (máx. 5 por minuto)."
     },
     "Please configure first using /daconfig or specify server and sietch.": {
         "en": "Please configure first using /daconfig or specify server and sietch.",
         "de": "Bitte zuerst mit /daconfig konfigurieren oder Server und Sietch angeben.",
-        "fr": "Veuillez d'abord configurer avec /daconfig ou sp      cifier serveur et sietch.",
+        "fr": "Veuillez d'abord configurer avec /daconfig ou spécifier serveur et sietch.",
         "es": "Por favor configura primero con /daconfig o especifica servidor y sietch."
     },
     "Could not retrieve data for server '{server_name}'.": {
         "en": "Could not retrieve data for server '{server_name}'.",
-        "de": "Daten f      r Server '{server_name}' konnten nicht abgerufen werden.",
-        "fr": "Impossible de r      cup      rer les donn      es pour le serveur '{server_name}'.",
+        "de": "Daten fuer Server '{server_name}' konnten nicht abgerufen werden.",
+        "fr": "Impossible de récupérer les données pour le serveur '{server_name}'.",
         "es": "No se pudieron obtener datos para el servidor '{server_name}'."
     },
     "Configuration saved:\nServer: {server_name}\nSietch: {sietch_name}\nChannel: {channel}\nOnline/Offline messages: {online_offline}\nDaily Player Peak posting: {max24h_post}\nStatus visibility: {visibility}": {
         "en": "Configuration saved:\nServer: {server_name}\nSietch: {sietch_name}\nChannel: {channel}\nOnline/Offline messages: {online_offline}\nDaily Player Peak posting: {max24h_post}\nStatus visibility: {visibility}",
-        "de": "Konfiguration gespeichert:\nServer: {server_name}\nSietch: {sietch_name}\nKanal: {channel}\nOnline/Offline Nachrichten: {online_offline}\nTaegliche Spielerrekord Meldung: {max24h_post}\nStatus Sichtbarkeit: {visibility}",
-        "fr": "Configuration enregistre :\nServeur : {server_name}\nSietch : {sietch_name}\nCanal : {channel}\nMessages en ligne/hors ligne : {online_offline}\nPublication du pic journalier : {max24h_post}\nVisibilite du statut : {visibility}",
-        "es": "Configuracin guardada:\nServidor: {server_name}\nSietch: {sietch_name}\nCanal: {channel}\nMensajes online/offline: {online_offline}\nPublicacin pico diario: {max24h_post}\nVisibilidad del estado: {visibility}"
-    },    
+        "de": "Konfiguration gespeichert:\nServer: {server_name}\nSietch: {sietch_name}\nKanal: {channel}\nOnline/Offline Nachrichten: {online_offline}\nTägliche Spielerrekord Meldung: {max24h_post}\nStatus Sichtbarkeit: {visibility}",
+        "fr": "Configuration enregistrée :\nServeur : {server_name}\nSietch : {sietch_name}\nCanal : {channel}\nMessages en ligne/hors ligne : {online_offline}\nPublication du pic journalier : {max24h_post}\nVisibilité du statut : {visibility}",
+        "es": "Configuracion guardada:\nServidor: {server_name}\nSietch: {sietch_name}\nCanal: {channel}\nMensajes online/offline: {online_offline}\nPublicación pico diario: {max24h_post}\nVisibilidad del estado: {visibility}"
+    },
     "You need administrator rights to use this command.": {
         "en": "You need administrator rights to use this command.",
         "de": "Du benoetigst Administratorrechte, um diesen Befehl zu verwenden.",
-        "fr": "Vous devezetre administrateur pour utiliser cette commande.",
+        "fr": "Vous devez être administrateur pour utiliser cette commande.",
         "es": "Necesitas derechos de administrador para usar este comando."
     },
     "Sietch offline": {
@@ -152,7 +161,7 @@ TRANSLATIONS = {
     },
     "Daily Player Peak": {
         "en": "**Daily Player Peak**",
-        "de": "**Taeglicher Spielerrekord**",
+        "de": "**Täglicher Spielerrekord**",
         "fr": "**Pic journalier joueurs**",
         "es": "**Pico diario jugadores**"
     },
@@ -162,15 +171,46 @@ TRANSLATIONS = {
         "fr": "Joueur",
         "es": "Jugador"
     },
+    "Server went offline": {
+        "en": "Server {server_name} - {sietch_name} went offline.",
+        "de": "Server {server_name} - {sietch_name} ist offline gegangen.",
+        "fr": "Le serveur {server_name} - {sietch_name} est hors ligne.",
+        "es": "Servidor {server_name} - {sietch_name} se desconectó."
+    },
+    "Server is online again": {
+        "en": "Server {server_name} - {sietch_name} is online again.",
+        "de": "Server {server_name} - {sietch_name} ist wieder online.",
+        "fr": "Le serveur {server_name} - {sietch_name} est de nouveau en ligne.",
+        "es": "Servidor {server_name} - {sietch_name} esta en linea nuevamente."
+    },
     "I'll update you about the status of {server_name} - {sietch_name} in this channel.": {
         "en": "I'll update you about the status of {server_name} - {sietch_name} in this channel.",
-        "de": "Ich werde dich in diesem Kanal       ber den Status von {server_name} - {sietch_name} informieren.",
-        "fr": "Je vous tiendrai inform       du statut de {server_name} - {sietch_name} dans ce canal.",
-        "es": "Te mantendr       informado sobre el estado de {server_name} - {sietch_name} en este canal."
+        "de": "Ich werde dich in diesem Kanal ueber den Status von {server_name} - {sietch_name} informieren.",
+        "fr": "Je vous tiendrai informe du statut de {server_name} - {sietch_name} dans ce canal.",
+        "es": "Te mantendra informado sobre el estado de {server_name} - {sietch_name} en este canal."
+    },
+    "Online": {
+        "en": "Online",
+        "de": "Online",
+        "fr": "En ligne",
+        "es": "En línea"
+    },
+    "Offline": {
+        "en": "Offline",
+        "de": "Offline",
+        "fr": "Hors ligne",
+        "es": "Desconectado"
+    },
+    "Unknown": {
+        "en": "Unknown",
+        "de": "Unbekannt",
+        "fr": "Inconnu",
+        "es": "Desconocido"
     }
 }
 
 def translate(key: str, lang: str = "en", **kwargs) -> str:
+    """Translate text based on key and language"""
     text = TRANSLATIONS.get(key, {}).get(lang, TRANSLATIONS.get(key, {}).get("en", key))
     if kwargs:
         try:
@@ -180,6 +220,7 @@ def translate(key: str, lang: str = "en", **kwargs) -> str:
     return text
 
 def load_guild_configs():
+    """Load guild configurations from JSON file"""
     global guild_configs
     if os.path.isfile(CONFIG_FILE):
         try:
@@ -196,6 +237,7 @@ def load_guild_configs():
         guild_configs = {}
 
 def save_guild_configs():
+    """Save guild configurations to JSON file"""
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(guild_configs, f, indent=2)
@@ -203,6 +245,7 @@ def save_guild_configs():
         print(f"{datetime.utcnow()} - Error saving guild config: {e}")
 
 def load_max_counts():
+    """Load player count data from JSON file"""
     global max_counts
     if os.path.isfile(MAX_COUNT_FILE):
         try:
@@ -224,6 +267,7 @@ def load_max_counts():
         max_counts.clear()
 
 def save_max_counts():
+    """Save player count data to JSON file"""
     try:
         to_save = {f"{k[0]}|{k[1]}": v for k, v in max_counts.items()}
         with open(MAX_COUNT_FILE, "w", encoding="utf-8") as f:
@@ -232,6 +276,7 @@ def save_max_counts():
         print(f"{datetime.utcnow()} - Error saving max counts: {e}")
 
 def load_status_info():
+    """Load server status data from JSON file"""
     global status_info
     if os.path.isfile(STATUS_FILE):
         try:
@@ -262,6 +307,7 @@ def load_status_info():
         status_info.clear()
 
 def save_status_info():
+    """Save server status data to JSON file"""
     try:
         to_save = {}
         for k, v in status_info.items():
@@ -275,6 +321,7 @@ def save_status_info():
         print(f"{datetime.utcnow()} - Error saving status info: {e}")
 
 def find_balanced_braces_around(text, start_pos):
+    """Find JSON block around given position"""
     open_pos = text.rfind('{', 0, start_pos)
     if open_pos == -1:
         return None
@@ -287,21 +334,29 @@ def find_balanced_braces_around(text, start_pos):
     return None
 
 def _fetch_raw_data():
+    """Fetch raw data from API with retry mechanism"""
     global last_fetch_time
-    try:
-        r = requests.get(URL, timeout=5)
-        r.raise_for_status()
-        last_fetch_time = datetime.utcnow()
-        return r.text
-    except Exception as e:
-        print(f"{datetime.utcnow()} - Error fetching raw data: {e}")
-        return None
+    for attempt in range(3):  # 3 retry attempts
+        try:
+            r = requests.get(URL, timeout=5)
+            r.raise_for_status()
+            last_fetch_time = datetime.utcnow()
+            return r.text
+        except (requests.ConnectionError, requests.Timeout) as e:
+            print(f"{datetime.utcnow()} - Attempt {attempt + 1}/3: Error fetching raw data: {e}")
+            if attempt == 2:  # If last attempt failed
+                return None
+            asyncio.sleep(2)  # Wait before retry
+    return None
 
 def _update_server_data_cache():
+    """Update server data cache from raw API response"""
     global _server_data_cache, _server_data_cache_time, _server_list_cache, _server_list_cache_time
     now = datetime.utcnow()
-    if _server_data_cache_time and (now - _server_data_cache_time).total_seconds() < 60:
-        return  # Cache still valid
+
+    # Update cache every 30 seconds
+    if _server_data_cache_time and (now - _server_data_cache_time).total_seconds() < 30:
+        return
 
     raw = _fetch_raw_data()
     if not raw:
@@ -311,6 +366,7 @@ def _update_server_data_cache():
     sietches_set = set()
     pattern = r'\\"DisplayName\\":\\"(.*?)\\"'
     matches = list(re.finditer(pattern, raw))
+
     for m in matches:
         server_name = m.group(1)
         pos = m.start()
@@ -332,25 +388,27 @@ def _update_server_data_cache():
 
     _server_data_cache = filtered_servers
     _server_data_cache_time = now
-
     _server_list_cache = list(filtered_servers.keys())
     _server_list_cache_time = now
 
 def fetch_server_block(server_name):
+    """Get server data for specific server name"""
     _update_server_data_cache()
     if _server_data_cache is None:
         return None
     return _server_data_cache.get(server_name)
 
 async def fetch_all_servers():
+    """Get list of all available servers"""
     now = datetime.utcnow()
     global _server_list_cache, _server_list_cache_time
-    if _server_list_cache_time and (now - _server_list_cache_time).total_seconds() < 60 and _server_list_cache:
+    if _server_list_cache_time and (now - _server_list_cache_time).total_seconds() < 30 and _server_list_cache:
         return _server_list_cache
     _update_server_data_cache()
     return _server_list_cache
 
 async def autocomplete_server_name(interaction: discord.Interaction, current: str):
+    """Autocomplete for server names"""
     servers = await fetch_all_servers()
     return [
         app_commands.Choice(name=s, value=s)
@@ -358,6 +416,7 @@ async def autocomplete_server_name(interaction: discord.Interaction, current: st
     ][:25]
 
 async def autocomplete_sietch_name(interaction: discord.Interaction, current: str):
+    """Autocomplete for sietch names"""
     server_name = None
     for option in getattr(interaction, "options", []):
         if option.name == "server_name":
@@ -382,22 +441,32 @@ async def autocomplete_sietch_name(interaction: discord.Interaction, current: st
     ][:25]
 
 def create_status_embed(server_data, sietch_name, max_count_server, max_count_sietch, lang):
+    """Create status embed for server information"""
     sietch = next((s for s in server_data.get("ActiveInitialServers", []) if s.get("DisplayName", "").strip() == sietch_name), None)
-    if sietch:
-        status_sietch = translate("Online", lang) if sietch.get("ServerStatus", 0) == 20 else translate("Offline", lang)
-        playercount_sietch = sietch.get("CurrentConcurrentPlayerCount", 0)
-        capacity_sietch = sietch.get("MaxConcurrentPlayerCapacity", 0)
-    else:
-        status_sietch = translate("Unknown", lang)
-        playercount_sietch = 0
-        capacity_sietch = 0
 
+    # Default values for offline status
+    status_sietch = translate("Offline", lang)
+    playercount_sietch = 0
+    capacity_sietch = 0
+
+    if sietch:
+        if sietch.get("ServerStatus") == 20:
+            status_sietch = translate("Online", lang)
+            playercount_sietch = sietch.get("CurrentConcurrentPlayerCount", 0)
+            capacity_sietch = sietch.get("MaxConcurrentPlayerCapacity", 0)
+        else:
+            print(f"{datetime.utcnow()} - Sietch {sietch_name} reported status: {sietch.get('ServerStatus')}")
+
+    # Server status based on ServerStatus == 20
     status_server = translate("Online", lang) if server_data.get("ServerStatus", 0) == 20 else translate("Offline", lang)
 
+    # Format sietch name for display
     sietch_short = sietch_name[len("Sietch "):] if sietch_name and sietch_name.startswith("Sietch ") else sietch_name or translate("Sietch", lang)
 
+    # Create embed with status information
     embed = discord.Embed(title=translate("Serverstatus", lang), color=0x1F8B4C, timestamp=datetime.utcnow())
 
+    # Add fields to the embed
     embed.add_field(name=translate("Status", lang), value=status_sietch, inline=True)
     embed.add_field(name=translate("Server", lang), value=server_data.get("DisplayName", "unknown"), inline=True)
     embed.add_field(name=translate("Sietch", lang), value=sietch_short, inline=True)
@@ -410,6 +479,7 @@ def create_status_embed(server_data, sietch_name, max_count_server, max_count_si
     embed.add_field(name=translate("Daily Player Peak Server", lang), value=str(max_count_server), inline=True)
     embed.add_field(name=translate("Capacity Server", lang), value=str(server_data.get("BattlegroupMaxPlayerCapacity", 0)), inline=True)
 
+    # Add footer with last update time
     if last_fetch_time:
         embed.set_footer(text=f"{translate('Last status update:', lang)} {last_fetch_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     else:
@@ -418,11 +488,13 @@ def create_status_embed(server_data, sietch_name, max_count_server, max_count_si
     return embed
 
 def create_update_embed(title, desc, color):
+    """Create standard update embed with consistent formatting"""
     embed = discord.Embed(title=title, description=desc, color=color, timestamp=datetime.utcnow())
     embed.set_footer(text="Dune Awakening Status Bot")
     return embed
 
 def is_guild_admin():
+    """Check if user has administrator rights"""
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild:
             return False
@@ -438,8 +510,8 @@ def is_guild_admin():
 LANGUAGE_CHOICES = [
     app_commands.Choice(name="English", value="en"),
     app_commands.Choice(name="Deutsch", value="de"),
-    app_commands.Choice(name="Fran      ais", value="fr"),
-    app_commands.Choice(name="Espa      ol", value="es"),
+    app_commands.Choice(name="Français", value="fr"),
+    app_commands.Choice(name="Español", value="es"),
 ]
 
 STATUS_VISIBILITY_CHOICES = [
@@ -471,6 +543,7 @@ async def daconfig(
     language: str = None,
     status_visibility: str = None,
 ):
+    """Configure bot settings for a guild"""
     guild_id = str(interaction.guild_id)
     config = guild_configs.get(guild_id, {})
 
@@ -521,7 +594,9 @@ async def daconfig(
 
     try:
         guild = interaction.guild or await interaction.client.fetch_guild(interaction.guild_id)
-        target_channel = guild.get_channel(channel_id) or await guild.fetch_channel(channel_id)
+        target_channel = guild.get_channel(config.get("channel_id"))
+        if not target_channel:
+            target_channel = await guild.fetch_channel(config.get("channel_id"))
         if target_channel:
             await target_channel.send(
                 translate(
@@ -550,6 +625,7 @@ async def daconfig(
 
 @daconfig.error
 async def daconfig_error(interaction: discord.Interaction, error):
+    """Handle configuration command errors"""
     from discord.app_commands import CheckFailure
     if isinstance(error, CheckFailure):
         lang = "en"
@@ -566,20 +642,8 @@ async def daconfig_error(interaction: discord.Interaction, error):
 @app_commands.autocomplete(server_name=autocomplete_server_name)
 @app_commands.autocomplete(sietch_name=autocomplete_sietch_name)
 async def dastatus(interaction: discord.Interaction, server_name: str = None, sietch_name: str = None):
+    """Get current server and sietch status"""
     guild_id = str(interaction.guild_id)
-    now = datetime.utcnow()
-    timestamps = ratelimit_calls.setdefault(guild_id, [])
-    timestamps = [t for t in timestamps if (now - t).total_seconds() < 60]
-    if len(timestamps) >= 5:
-        lang = "en"
-        config = guild_configs.get(guild_id)
-        if config:
-            lang = config.get("language", "en")
-        await interaction.response.send_message(translate("Please don't request so often (max 5 per minute).", lang), ephemeral=True)
-        return
-    timestamps.append(now)
-    ratelimit_calls[guild_id] = timestamps
-
     config = guild_configs.get(guild_id, {})
     lang = config.get("language", "en")
     visibility = config.get("status_visibility", "private")
@@ -606,6 +670,7 @@ async def dastatus(interaction: discord.Interaction, server_name: str = None, si
     await interaction.response.send_message(embed=embed, ephemeral=(visibility == "private"))
 
 async def periodic_check():
+    """Main status checking loop with reliable status change detection"""
     global last_reset_day
     load_guild_configs()
     load_max_counts()
@@ -619,7 +684,7 @@ async def periodic_check():
 
         _update_server_data_cache()
 
-        all_servers = _server_data_cache or {}
+        all_servers = _server_data_cache or {}  # Will be empty if data fetch failed
 
         changed_max = False
         changed_status = False
@@ -688,31 +753,41 @@ async def periodic_check():
             lang = config.get("language", "en")
 
             key_sietch = (server_name, sietch_name)
-
             current_status_sietch = status_info.get(key_sietch, {}).get("status")
 
-            if guild_id not in last_statuses:
-                last_statuses[guild_id] = {"sietch": None}
-            if guild_id not in last_status_changes:
-                last_status_changes[guild_id] = now_utc - timedelta(minutes=COOLDOWN_MINUTES+1)
+            guild_key = f"{guild_id}_{server_name}_{sietch_name}"
 
-            last_stat_sietch = last_statuses[guild_id].get("sietch")
-            last_change = last_status_changes[guild_id]
-            cooldown_passed = (now_utc - last_change) > timedelta(minutes=COOLDOWN_MINUTES)
+            # Initialize tracking variables if not exists
+            if guild_key not in initial_status_sent:
+                initial_status_sent[guild_key] = False
 
             if config.get("online_offline", False):
-                if last_stat_sietch == 20 and current_status_sietch != 20 and cooldown_passed:
-                    msg = f"Server {server_name} - {sietch_name} went offline."
-                    await channel.send(embed=create_update_embed(translate("Sietch offline", lang), msg, 0xFF0000))
-                    last_status_changes[guild_id] = now_utc
-                elif last_stat_sietch != 20 and current_status_sietch == 20 and cooldown_passed:
-                    msg = f"Server {server_name} - {sietch_name} is online again."
-                    await channel.send(embed=create_update_embed(translate("Sietch online", lang), msg, 0x00FF00))
-                    last_status_changes[guild_id] = now_utc
+                prev_status = last_statuses.get(guild_id, {}).get("sietch")
 
-            last_statuses[guild_id]["sietch"] = current_status_sietch
+                if prev_status is None:
+                    # First run: Initialize status without sending message
+                    last_statuses[guild_id] = {"sietch": current_status_sietch}
+                    if current_status_sietch == 20:
+                        initial_status_sent[guild_key] = True
+                else:
+                    # Only process if we have a valid current status from API
+                    if current_status_sietch is not None:
+                        if prev_status != current_status_sietch:
+                            if current_status_sietch == 20:
+                                # Server is online again - send message immediately
+                                msg = translate("Server is online again", lang, server_name=server_name, sietch_name=sietch_name)
+                                await channel.send(embed=create_update_embed(translate("Sietch online", lang), msg, 0x00FF00))
+                                initial_status_sent[guild_key] = True
+                            else:
+                                # Server went offline - send message immediately
+                                msg = translate("Server went offline", lang, server_name=server_name, sietch_name=sietch_name)
+                                await channel.send(embed=create_update_embed(translate("Sietch offline", lang), msg, 0xFF0000))
+                                initial_status_sent[guild_key] = False
+                            # Always update last status
+                            last_statuses[guild_id] = {"sietch": current_status_sietch}
 
-        if now_cest.hour == 10 and now_cest.minute == 0 and last_reset_day != today_cest:
+        # Daily reset at 05:00 CEST
+        if now_cest.hour == 5 and now_cest.minute == 0 and last_reset_day != today_cest:
             for guild_id, config in guild_configs.items():
                 guild = client.get_guild(int(guild_id))
                 if guild is None:
@@ -734,7 +809,7 @@ async def periodic_check():
                 server_name = config.get("server_name")
                 sietch_name = config.get("sietch_name")
                 lang = config.get("language", "en")
-                sietch_short = sietch_name[len("Sietch "):] if sietch_name and sietch_name.startswith("Sietch ") else sietch_name or "Sietch"
+                sietch_short = sietch_name[len("Sietch "):] if sietch_name and sietch_name.startswith("Sietch ") else sietch_name or translate("Sietch", lang)
 
                 max_server = max_counts.get((server_name, ""), 0)
                 max_sietch = max_counts.get((server_name, sietch_name), 0)
@@ -746,19 +821,22 @@ async def periodic_check():
             save_max_counts()
             last_reset_day = today_cest
 
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
 
 @client.event
 async def on_ready():
-    await tree.sync()
+    """Bot startup handler"""
     print(f"{datetime.utcnow()} - Bot started as {client.user}")
+    await tree.sync()
+    # Start the periodic check task
+    client.loop.create_task(periodic_check())
 
 async def main():
+    """Main bot entry point"""
     load_guild_configs()
     load_max_counts()
     load_status_info()
     async with client:
-        client.loop.create_task(periodic_check())
         await client.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
